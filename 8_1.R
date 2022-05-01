@@ -3,6 +3,7 @@ library(caret)
 library(dslabs)
 data(heights)
 
+#TEMA 1:
 #Para este ejemplo vamos a predecir genero utilizando altura:
 y <- heights$sex
 x <- heights$height
@@ -74,3 +75,84 @@ y_hat <- ifelse(test_set$height > 64, "Male", "Female") %>%
   factor(levels = levels(test_set$sex))
 y_hat <- factor(y_hat)
 mean(y_hat == test_set$sex)
+
+#TEMA 2:
+#Llegamos a 64, pero el promedio de altura de las mujeres es 65. No esta mal que cuando
+#sean mas altos de 64 prediga hombres si el promedio de altura de mujeres es mayor a eso?
+#De hecho, en esta tabla podemos ver que si tenemos un problema. El modelo es mucho mas
+#adecuado para adivinar si se trata de un hombre (93.3%) que una mujer (42%). En total,
+#nuestro modelo parece ser muy adecuado, pero predice muy mal para las mujeres. Esto se
+#debe a que hay mas hombres que mujeres en nuestro set.
+table(predicted = y_hat, actual = test_set$sex)
+test_set %>% 
+  mutate(y_hat = y_hat) %>%
+  group_by(sex) %>% 
+  summarize(accuracy = mean(y_hat == sex))
+
+#77.3% de los participantes son hombres. Los errores en mujeres se compensan porque hay
+#muchos aciertos en hombres.
+prev <- mean(y == "Male")
+prev
+
+#Un training set sesgado puede debilitar el algoritmo. Por eso, se usan mas datos, no 
+#solo el overall accuracy. Estos datos se pueden conseguir con la matriz de confusion.
+#A general improvement to using overall accuracy is to study sensitivity and specificity
+#separately.
+#Sensitivity, also known as the true positive rate
+#Specificity, also known as the true negative rate
+#Es muy sensible si logra detectar positivos que si son positivos. Es muy especifico si
+#logra detectar negativos que si son negativos.
+#Sensitivity = TP/(TP+FN)
+#Specificity = TN/(TN+FP)  O  precision = TP/(TP+FP) 
+
+#Para no tener que calcular todo esto, la funcion confusionMatrix nos lo da todo. Le
+#damos los datos a analizar y los factores de referencia. La funcion toma el primer
+#factor y analiza los positivos y negativos respecto a este. En nuestro caso el primer
+#factor es "Female", porque viene antes en orden alfabetico. Vemos que el modelo es muy
+#Especifico porque puede detectar negativos bien (aquellos que no son Female). Pero no es
+#muy sensible porque no detecta bien los positivos. La prevalencia de mujeres es baja, de
+#22.7%, como se puede ver en prevalence. Accuracy sigue siendo alto.
+confusionMatrix(data = y_hat, reference = test_set$sex)
+
+#El promedio de especificidad y sensitividad se llama balanced accuracy. Es utili para 
+#tener todo en un mosmo valor. Mejor aun usar el F1, que da un promedio harmonico entre
+#especi. y sensiti.
+#En algunos casos la sensitividad puede se mas importante que la especificidad o vicever.
+#Para estos casos, en el calculo de F1 podemos incluir una beta que pondere que tan 
+#importante es una sobre la otra.
+#La funcion F_meas calcula el F1. Si no indicamos lo contrario, beta=1. Podemos cambiar
+#el codigo que usamos arriba para ver que valor de x maximiza el F1 en lugar de la oa.
+cutoff <- seq(61, 70)
+F_1 <- map_dbl(cutoff, function(x){
+  y_hat <- ifelse(train_set$height > x, "Male", "Female") %>% 
+    factor(levels = levels(test_set$sex))
+  F_meas(data = y_hat, reference = factor(train_set$sex))
+})
+#Aqui la grafica:
+data.frame(cutoff, F_1) %>% 
+  ggplot(aes(cutoff, F_1)) + 
+  geom_point() + 
+  geom_line()
+#Vemos que el maximo es de 61.4% y se alcanza en 66 inches.
+max(F_1)
+best_cutoff <- cutoff[which.max(F_1)]
+best_cutoff
+#Como podemos ver, da un mejor balance a sensitividad y especificidad:
+y_hat <- ifelse(test_set$height > best_cutoff, "Male", "Female") %>% 
+  factor(levels = levels(test_set$sex))
+confusionMatrix(data = y_hat, reference = test_set$sex)
+sensitivity(data = y_hat, reference = test_set$sex)
+specificity(data = y_hat, reference = test_set$sex)
+#It takes height as a predictor and predicts Female if you are 66 inches or shorter.
+#En casos en que sabemos que la prevalencia es muy cercana a 1 o a 0 hay que disenar un
+#algoritmo que atienda esto. No nos sirve tener mucha sensibilidad si nuestro algoritmo
+#esta tratando de detectar una enfermedad super rara en la que preferimos ser precisios y
+#especificos.
+
+
+
+
+
+
+
+
