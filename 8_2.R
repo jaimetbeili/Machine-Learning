@@ -1,3 +1,5 @@
+#NOTA: 8_1 FUE TOTALMENTE TEORICO, POR LO QUE NO HUBO R SCRIPT.
+
 library(tidyverse)
 library(caret)
 library(dslabs)
@@ -38,7 +40,7 @@ mean(y_hat == test_set$sex)
 heights %>% group_by(sex) %>%
   summarise(mean(height), sd(height))
 
-#Si tomamos la altura promedio del hombre y le restamos dos sd nos ds 62. Podemos usar
+#Si tomamos la altura promedio del hombre y le restamos dos sd nos da 62. Podemos usar
 #ese valor como predictor:
 y_hat <- ifelse(x > 62, "Male", "Female") %>%
   factor(levels = levels(test_set$sex))
@@ -149,10 +151,108 @@ specificity(data = y_hat, reference = test_set$sex)
 #esta tratando de detectar una enfermedad super rara en la que preferimos ser precisios y
 #especificos.
 
+#Si volvemos al modelo de solo adivinar y cambiamos la frecuencia en que nuestro algorit
+#selecciona Male, nuestra accuracy aumenta. Sin emabrgo, esto disminuye la sensibilidad.
+p <- 0.9
+n <- length(test_index)
+y_hat <- sample(c("Male", "Female"), n, replace = TRUE, prob=c(p, 1-p)) %>% 
+  factor(levels = levels(test_set$sex))
+mean(y_hat == test_set$sex)
+#Como tenemos que contemplar tanto sensibilidad como especificidad, es importante ver
+#ambas. Una forma de hacer esto es con una grafica llamada ROC que se ve asi
+probs <- seq(0, 1, length.out = 10)
+guessing <- map_df(probs, function(p){
+  y_hat <- 
+    sample(c("Male", "Female"), n, replace = TRUE, prob=c(p, 1-p)) %>% 
+    factor(levels = c("Female", "Male"))
+  list(method = "Guessing",
+       FPR = 1 - specificity(y_hat, test_set$sex),
+       TPR = sensitivity(y_hat, test_set$sex))
+})
+guessing %>% qplot(FPR, TPR, data =., xlab = "1 - Specificity", ylab = "Sensitivity")
+#En el eje x tenemos sensitividad y en el y 1-especificidad. Un algoritmo perfecto
+#tendria una linea horizontal hasta arriba, lo que implica sensitividad perfecta para
+#todos los niveles de especificidad. En este caso, por ejemplo, del punto 7 al 8 se gana
+#mucha sensibilidad, pero del 8 al 9 no tanta.
 
+#Asi se ve si comparamos el adivinar con el algoritmo
+cutoffs <- c(50, seq(60, 75), 80)
+height_cutoff <- map_df(cutoffs, function(x){
+  y_hat <- ifelse(test_set$height > x, "Male", "Female") %>% 
+    factor(levels = c("Female", "Male"))
+  list(method = "Height cutoff",
+       FPR = 1-specificity(y_hat, test_set$sex),
+       TPR = sensitivity(y_hat, test_set$sex))
+})
+bind_rows(guessing, height_cutoff) %>%
+  ggplot(aes(FPR, TPR, color = method)) +
+  geom_line() +
+  geom_point() +
+  xlab("1 - Specificity") +
+  ylab("Sensitivity")
 
+#Podemos asignar etiquetas a cada valor para ver cual seria el mejor cutoff para nuestro
+#algoritmo.
+library(ggrepel)
+map_df(cutoffs, function(x){
+  y_hat <- ifelse(test_set$height > x, "Male", "Female") %>% 
+    factor(levels = c("Female", "Male"))
+  list(method = "Height cutoff",
+       cutoff = x, 
+       FPR = 1-specificity(y_hat, test_set$sex),
+       TPR = sensitivity(y_hat, test_set$sex))
+}) %>%
+  ggplot(aes(FPR, TPR, label = cutoff)) +
+  geom_line() +
+  geom_point() +
+  geom_text_repel(nudge_x = 0.01, nudge_y = -0.01) +
+  xlab("1 - Specificity") +
+  ylab("Sensitivity")
 
+#El problema de las curvas ROC es que no contemplan prevalencia. Recordemos que en este
+#caso la prevalencia de Female es muy baja. Una curva que si contempla prevalencia se
+#llama precision-recall plot. Nos muestra la precision frente a los "nombrados":
+guessing <- map_df(probs, function(p){
+  y_hat <- sample(c("Male", "Female"), length(test_index), 
+                  replace = TRUE, prob=c(p, 1-p)) %>% 
+    factor(levels = c("Female", "Male"))
+  list(method = "Guess",
+       recall = sensitivity(y_hat, test_set$sex),
+       precision = precision(y_hat, test_set$sex))
+})
+height_cutoff <- map_df(cutoffs, function(x){
+  y_hat <- ifelse(test_set$height > x, "Male", "Female") %>% 
+    factor(levels = c("Female", "Male"))
+  list(method = "Height cutoff",
+       recall = sensitivity(y_hat, test_set$sex),
+       precision = precision(y_hat, test_set$sex))
+})
+bind_rows(guessing, height_cutoff) %>%
+  ggplot(aes(recall, precision, color = method)) +
+  geom_line() +
+  geom_point()
+#De aqui podemos ver que la precision no es tan alta como parecia mostrarse en la ROC, 
+#esto se debe a que la prevalencia es baja. OJO LAS ESCALAS.
+#Si cambiamos el positivo para que sea "Male" la curva ROC se ve igual, pero la precision
+#recall si cambia, pues la prevalencia aumenta: OJO LAS ESCALAS.
+guessing <- map_df(probs, function(p){
+  y_hat <- sample(c("Male", "Female"), length(test_index), replace = TRUE, 
+                  prob=c(p, 1-p)) %>% 
+    factor(levels = c("Male", "Female"))
+  list(method = "Guess",
+       recall = sensitivity(y_hat, relevel(test_set$sex, "Male", "Female")),
+       precision = precision(y_hat, relevel(test_set$sex, "Male", "Female")))
+})
+height_cutoff <- map_df(cutoffs, function(x){
+  y_hat <- ifelse(test_set$height > x, "Male", "Female") %>% 
+    factor(levels = c("Male", "Female"))
+  list(method = "Height cutoff",
+       recall = sensitivity(y_hat, relevel(test_set$sex, "Male", "Female")),
+       precision = precision(y_hat, relevel(test_set$sex, "Male", "Female")))
+})
+bind_rows(guessing, height_cutoff) %>%
+  ggplot(aes(recall, precision, color = method)) +
+  geom_line() +
+  geom_point()
 
-
-
-
+#TEMA 2:
