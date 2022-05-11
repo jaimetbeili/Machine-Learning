@@ -534,9 +534,3 @@ x_standardized <- sweep(x_mean_0, 2, colSds(x), FUN = "/")
 x %*% x
 #Una matriz por su transpuesta se hace asi:
 crossprod(x)
-
-
-
-
-
-
