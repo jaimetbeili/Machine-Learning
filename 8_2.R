@@ -298,13 +298,3 @@ dat %>%
   group_by(g) %>%
   summarize(y = mean(y), x = mean(x)) %>%
   qplot(x, y, data =.)
-
-
-
-
-
-
-
-
-
-
