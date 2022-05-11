@@ -271,6 +271,100 @@ mnist_27$true_p %>%
 #Algunos 7 quedan del lado del 2 y viceversa. Vamos a ver a continuacion formas de 
 #atender un problema asi con aproaches mas complejos, empezando con ejemplos sencillos.
 
+#TEMA 2:
+#Vamos a explicar una tecnica llamada smoothing. Basicamente es quitar el noise.
+#Para hacerlo utilizaremos datos de la eleccion entre obama y mccain de 2008. Para este
+#caso no nos importa predecir, nos importa entender la forma en que se mueve la info.
+data("polls_2008")
+qplot(day, margin, data = polls_2008)
+#La encuesta de cada dia (x) muestra una preferencia (f(x)) a la que tenemos que anadir
+#un error (epsilon) por la encuestadora. Eso nos da una preferencia reportada (y) tal
+#que: y = f(x) + eps
+#Dado que hay dias con mucha variabilidad, una regresion lineal no sera suficiente para
+#este problema. Nos puede llegar a pasar lo mismo que con el de 2 o 7. Para evitarlo,
+#usaremos un metodo mas flexible.
+#Bin Smoothing & Kernels
+#Bin smoothing es basicamente estratificar los datos en grupos en los que f(x) pueda ser
+#relativamente constante. Podemos asumir esto si f(x) se mueve lentamente. Por ejemplo, 
+#podemos asumir que las preferencias se mantienen relativamente parecidas dentro de una
+#misma semana.
+#El span o bandwidth es la ventana de tiempo que estamos tomando. f(x) va a ser el 
+#promedio en esa ventana de tiempo para la ventana que tiene cada x. En este caso, cuando
+#tomamos un dia x, ese dia queda en el centro y la semana se mide usando los 3.5 dias
+#previos y los 3.5 dias siguientes. Como podemos ver en esta grafica eso implica que cada
+#vez que tomamos un nuevo dia x para nuestro centro cambian dos puntos, nos movemos hacia
+#los dos lados. Esto hace que la curva quede "spiky":
+span <- 7
+fit <- with(polls_2008,ksmooth(day, margin, x.points = day,
+                               kernel="box", bandwidth =span))
+polls_2008 %>% mutate(smooth = fit$y) %>%
+  ggplot(aes(day, margin)) +
+  geom_point(size = 3, alpha = .5, color = "grey") + 
+  geom_line(aes(day, smooth), color="red")
+#Para mejorar esto podemos cambiar el argumento kernel en la funcion ksmooth por el 
+#normal. Lo que esto hace es ponderar el promedio de cada bin, dando mayor peso a las x
+#mas cercanas al centro. Asi, si nuestra x del centro es el dia -43, ese sera el que mas
+#peso tenga en el promedio. Los extremos tendran mucho menor peso y la grafica no se vera
+#tan marcada en los cambios de ventana.
+fit <- with(polls_2008, ksmooth(day, margin,  x.points = day,
+                                kernel="normal", bandwidth = span))
+polls_2008 %>% mutate(smooth = fit$y) %>%
+  ggplot(aes(day, margin)) +
+  geom_point(size = 3, alpha = .5, color = "grey") + 
+  geom_line(aes(day, smooth), color="red")
+#Hay muchas formas de usar kernels en R. Aqui se mostro k-smooth. Sin embargo, no siempre
+#nos da los resultados adecuados. En algunos lugares la funcion sigue muy movida. Se 
+#suelen preferir otros metodos, como los que se presentaran a continuacion.
+#El teorema de Taylor nos indica que toda curva esta construida por rectas locales. Tal
+#vez la grafica completa sea una curva, pero de un punto a otro se ve una linea. Una
+#regresion ponderada local (loess) corre una pequena regresion lineal en periodos locales
+#previamente determinados (span) y nos da un valor predecido para cada periodo. Esto nos
+#da una curva mas smooth y con mas valores que los kernels que usamos antes.
+#Aqui el span es de 3 semanas:
+total_days <- diff(range(polls_2008$day))
+span <- 21/total_days
+
+fit <- loess(margin ~ day, degree = 1, span = span, data = polls_2008)
+
+polls_2008 %>% mutate(smooth = fit$fitted) %>%
+  ggplot(aes(day, margin)) +
+  geom_point(size = 3, alpha = .5, color = "grey") +
+  geom_line(aes(day, smooth), color = "red")
+#Ojo: el span que le damos a loess es una proporcion, no un entero. Lo que loess hace es
+#tomar esa proporcion y multiplicarla por el numero total de datos. Eso significa que si
+#el span es de .2 loess tomara el 20% de los datos mas cercanos a cada punto. 
+#Loess toma un promedio pondeado utilizando una formula diferente a la de los kernels.
+#Loess tambien puede eliminar outliers con el argumento family = symetric
+fit <- loess(margin ~ day, degree = 1, span = span,
+             data = polls_2008, family = "symmetric")
+polls_2008 %>% mutate(smooth = fit$fitted) %>%
+  ggplot(aes(day, margin)) +
+  geom_point(size = 3, alpha = .5, color = "grey") +
+  geom_line(aes(day, smooth), color = "red")
+
+#Otra cosa a considerar: De acuerdo con el teorema de Taylor, si vemos una funcion de
+#cerca, pero no tan cerca para que sea una linea, se vuelve una parabola. La funcion de
+#loess tiene como default hacer las pequenas regresiones como parabolas, no como lineas.
+#Para cambiar eso se usa el argumento degree, que senala el grado de polinomio que se 
+#quiere utilizar. El default es 2 (polinomio cuadrado). Usar el 1 reduce el ruido, pero
+#ambos tienen su utilidad.
+fit <- loess(margin ~ day, degree = 2, span = span, data = polls_2008)
+polls_2008 %>% mutate(smooth = fit$fitted) %>%
+  ggplot(aes(day, margin)) +
+  geom_point(size = 3, alpha = .5, color = "grey") +
+  geom_line(aes(day, smooth), color = "red")
+
+#ggplot puede hacer todo esto de manera automatica:
+polls_2008 %>% ggplot(aes(day, margin)) +
+  geom_point() + 
+  geom_smooth(color="red", span = 0.15, method = "loess", method.args = list(degree=1))
+#Aunque hay que tener cuidado de no usar los defaults porque no quedan tan bien:
+polls_2008 %>% ggplot(aes(day, margin)) +
+  geom_point() + 
+  geom_smooth()
+
+
+
 
 
 
