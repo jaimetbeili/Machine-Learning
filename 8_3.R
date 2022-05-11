@@ -364,13 +364,176 @@ polls_2008 %>% ggplot(aes(day, margin)) +
   geom_smooth()
 
 
+#TEMA 3:
+library(tidyverse)
+library(dslabs)
+if(!exists("mnist")) mnist <- read_mnist()
 
+#Cuando tenemos muchos predictores numericos y muchos outcomes, es conveniente guardar
+#los predictores en una matriz separada. En los datos de mnist, esto ya esta hecho:
+class(mnist$train$images)
+#Esta matriz tiene los 60,000 datos. Para hacerlo mas facil tomaremos los primeros 1,000:
+x <- mnist$train$images[1:1000,] 
+y <- mnist$train$labels[1:1000]
+#x es la matriz de los predictores y y son los resultados:
+class(x)
+class(y)
+#Las matrices son utilie para hacer operaciones complicadas y necesarias para machine
+#learning. Vamos a tratar de realizarlas para lograr cinco objetivos relacionados con
+#predecir digitos:
+#1. Ver cuanto varia la densidad de pixeles en cada digito.
+#2. Eliminar pixeles que no cambian mucho entre digitos y que no nos ayudan a predecir.
+#3. Eliminar las manchitas que quedan al rededor de la escritura.
+#4. Convertir los datos a binarios donde exista escritura y donde no (1 y 0).
+#5. Poner todo a escala.
+#Pero primero es necesario introducit conceptos de algebra linel en R.
+#En algebra matricial hay tres tipos de datos: scalars (numeros), vectores y matrices.
+#El primer vector de la matriz x tiene 1000 scalars:
+length(x[,1])
+#Una matriz se construye por vectores del mismo tamano. Por ejemplo: x_1 y x_2 son
+#vectores y se pueden juntar en una matriz:
+x_1 <- 1:5
+x_2 <- 6:10
+cbind(x_1, x_2)
+#La funcion dim nos da la dimension de la matriz (filas luego columnas)
+dim(x)
+#mil filas 784 columnas. Los vectores no tienen dimension, pero se les puede convertir en
+#matrices usando as.matrix para que nos de su dimension.
+dim(x_1)
+dim(as.matrix(x_1))
 
+#Suele ser util convertir vectores en matrices. Por ejemplo, si tenemos un vector que nos
+#dice la intensidad de color en un pixel. Como los pixeles se acomodan en un plano con
+#forma de matriz, seria util convertir este vector a una matriz. Para convertir vectores
+#a matrices se puede usar la funcion matrix:
+my_vector <- 1:15
+my_vector
+mat <- matrix(my_vector, 5, 3)
+mat
+#Ojo: el vector tiene los numeros del 1 al 15. La funcion matrix me pide el vector a 
+#convertir, luego el numero de filas y luego el de columnas y va llenando columna por
+#columna utilizando los numeros del vector en orden a menos que le indiquemos hacerlo
+#primero por filas y luego por culumnas:
+mat_t <- matrix(my_vector, 3, 5, byrow = TRUE)
+mat_t
+#La matriz queda transpuesta y no es igual a la anterior:
+identical(mat, mat_t)
+#En R podemos transponer directamente con la funcion t:
+identical(t(mat), mat_t)
+#R recicla los valores si sobran columnas o filas, por lo que hay que tener cuidado si la
+#longitud del vector no corresponde al numero de filas y columnas:
+matrix(my_vector, 5, 5)
+#En la practica podemos usarlo de esta forma:
+#Hacemos una matriz llamada grid usando el vector 3 en 28 columnas y 28 filas. Recordemos
+#que una imagen en este caso tiene 784 = 28*28 pixeles
+grid <- matrix(x[3,], 28, 28)
+#Convertimos esta matriz a una imagen usando esta funcion:
+image(1:28, 1:28, grid)
+#Toma el numero de filas y columnas (1 a 28) y lo rellena con los datos del tercer
+#argumento (grid). La imagen sale al reves porque se empieza a construir de abajo hacia
+#arriba, pero la podemos voltear:
+image(1:28, 1:28, grid[,28:1])
+#Parece un 4. Se comprueba asi y funciona con todos los numeros de la base de datos:
+y[3]
+#Prueba aleatoria
+rand <- sample(1:1000, 1, replace = FALSE)
+image(1:28, 1:28, (matrix(x[rand,], 28, 28))[,28:1])
+y[rand]
 
+#rowSums toma la suma de cada fila y rowMeans el promedio de cada fila.
+sums <- rowSums(x)
+avg <- rowMeans(x)
+#Si agrupamos y por digitos y graficamos segun el promedio de cada fila, vemos que el 
+#numero uno es el que menos tinta usa en promedio para cada numero, lo cual tiene mucho
+#sentido:
+data_frame(labels = as.factor(y), row_averages = avg) %>%
+  qplot(labels, row_averages, data = ., geom = "boxplot")
+#Objetivo 1 alcanzado.
+#Esto tambien se puede hacer por columnas con colSums y colMeans
+#El paquete matrixStats tiene funciones adicionales para operar en filas y columnas. Por
+#ejemplo rowSds y colSds
+#Existe tambien la posibilidad de hacerlo con la funcion apply. Para ello, le damos tres
+#argumentos: la matriz, la dimension (1=filas,2=columnas) y la funcion a aplicar
+avgs <- apply(x, 1, mean) #Esto seria rowMeans
+sds <- apply(x, 2, sd) #Esto seria colSds
+#Esta flexibilidad de aplicar cualquier funcion viene con el problema de que no son tan
+#rapidas como las especializadas.
 
+library(matrixStats)
+#Para nuestro segundo objetivo queremos ver los pixeles que casi no cambian. Cada columna
+#representa un pixel. Algunos pixeles tienen muy poca variabilidad
+sds <- colSds(x)
+qplot(sds, bins = "30", color = I("black"))
+#En las orillas la variacion es mucho menor, pues solemos escribir en el centro:
+image(1:28, 1:28, matrix(sds, 28, 28)[, 28:1])
+#Podemos quitar los pixeles que no nos generan ayuda predictiva.
+#Recordemos que con este codigo extraen columnas:
+x[ ,c(351,352)]
+#Y con este filas.
+x[c(2,3),]
+#Aqui lo que estamos haciendo es extraer solo las columnas con ds > 60 y guardarlas en
+#una nueva matriz new_x
+new_x <- x[ ,colSds(x) > 60]
+#new_x sigue teniendo 1000 digitos, pero ahora solo 314 pixeles en lugar de 784.
+dim(new_x)
+#Objetivo 2 alcanzado.
+#Una nota importante: new_x es una matriz porque incluimos mas de una columna. Si solo se
+#incluye una fila o una columna a la hora de hacer una submatriz, esta se convierte en un
+#vector y ya no se puede utilizar como matriz, a menos que se incluya el argumento DROP:
+class(x[,1])
+dim(x[1,])
+class(x[,1, drop=FALSE])
+dim(x[,1, drop=FALSE])
 
-
-
+#Asi como podemos convertir vectores en matrices, lo contrario se hace asi:
+mat <- matrix(1:15, 5, 3)
+as.vector(mat)
+#Asi se veria un histograma de todos nuestros vectores.
+qplot(as.vector(x), bins = 30, color = I("black"))
+#Se ve clara la diferencia entre lugares con tinta y sin tinta. Si creemos que los
+#valores a 25 son manchitas podemos retirarlos y convertirlos en cero de esta forma:
+new_x <- x
+new_x[new_x < 50] <- 0
+#Objetivo 3 alcanzado.
+#Lo que sucede es basicamente esto:
+mat <- matrix(1:15, 5, 3)
+mat[mat < 3] <- 0
+mat
+#Funciona tambien con operaciones un poco mas complejas.
+mat <- matrix(1:15, 5, 3)
+mat[mat > 6 & mat < 12] <- 0
+mat
+#Ahora queremos poner los datos en 1 y 0 segun si tienen tinta o no. La intensidad de
+#color va de 0 a 255. Podemos asumir que si tiene al menos la mitad de esa intensidad, 
+#entonces si hay tinta.
+bin_x <- x
+bin_x[bin_x < 255/2] <- 0
+bin_x[bin_x > 255/2] <- 1
+#Objetivo 4 alcanzado.
+#Para el objetivo 5 queremos estandarizar todo para que tenga el mismo promedio y ds.
+#En R si le restamos un vector a una matriz lo que sucede es que el primer numero del
+#vector se resta a la primera fila, el segundo numero del vector a la segunda fila, etc:
+mat <- matrix(6:20, 5, 3)
+mat
+vec <- c(1:5)
+mat - vec #6, 11 y 16 menos 1; 7, 12 y 17 menos 2...
+#Lo mismo sucede con cualquier otra operacion. Podemos poner a escala las filas usando
+#esta operacion:
+(x - rowMeans(x)) / rowSds(x)
+#Para hacer lo mismo con  las columnas habria que transponer la matriz:
+t(t(x) - colMeans(x))
+#Tambien se pude usar para esto la funcion sweep. Funciona de manera parecida a apply.
+#Sustrae el vector colMeans(x) de las columnas (por eso el 2).
+x_mean_0 <- sweep(x, 2, colMeans(x))
+#La operacion default que realiza sweep es restar, pero podemos pedir otra. Por ejemplo,
+#para dividir por la ds y ya tener x estandarizada, se hace asi:
+x_standardized <- sweep(x_mean_0, 2, colSds(x), FUN = "/")
+#Objetivo 5 alcanzado.
+#Comandos adicionales de utilidad:
+#La multiplicacion de matrices se hace asi:
+x %*% x
+#Una matriz por su transpuesta se hace asi:
+crossprod(x)
 
 
 
